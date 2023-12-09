@@ -1,0 +1,8 @@
+.env
+.DS_Store
+
+toxicity_experiment_1/
+toxicity_experiment_1/
+__pycache__
+
+realtoxicityprompts-data/
