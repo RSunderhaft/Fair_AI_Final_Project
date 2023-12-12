@@ -9,13 +9,12 @@ from argparse import ArgumentParser
 import openai
 import torch
 from openai import AsyncOpenAI
+import os
 from tqdm import tqdm
 
 from system_prompts import PROMPTS as SYSTEM_PROMPTS
 
-
-OPENAI_API_KEY = "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"
-
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 def arguments():
     parser = ArgumentParser('Toxcity_Experiment_One')
