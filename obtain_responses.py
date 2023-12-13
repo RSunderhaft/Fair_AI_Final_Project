@@ -9,12 +9,15 @@ from argparse import ArgumentParser
 import openai
 import torch
 from openai import AsyncOpenAI
+from codetiming import Timer
 import os
+from dotenv import load_dotenv
 from tqdm import tqdm
 
 from system_prompts import PROMPTS as SYSTEM_PROMPTS
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", default="Key Not Available")
 
 def arguments():
     parser = ArgumentParser('Toxcity_Experiment_One')
@@ -44,6 +47,11 @@ def arguments():
     return vars(args)
 
 
+##############################################################
+### Format Prompts
+##############################################################
+
+
 def create_prompts(system_prompts, user_prompts):
 
     messages = []
@@ -66,6 +74,9 @@ def create_prompts(system_prompts, user_prompts):
 
     return messages
 
+##############################################################
+### API Calls
+##############################################################
 
 async def generate_answer(prompt, client, seed = 1):
 
@@ -80,6 +91,25 @@ async def generate_answer(prompt, client, seed = 1):
     output_dict = {"user_prompt" : prompt["meta_data"]["user_prompt"], "sys_idx" : prompt["meta_data"]["sys_idx"] , "system" : message[0]["content"], "full_prompt" : message[1]["content"], "response" : output, "gen_id" : seed}
 
     return output_dict
+
+
+async def execute_batch(batch, client, num_seeds = 1, delay_between_calls = 0.12):
+
+    tasks = []
+
+    for prompt in batch:
+        for seed in range(num_seeds):
+            task = asyncio.create_task(generate_answer(prompt, client, seed = seed))
+            tasks.append(task)
+
+    results = await asyncio.gather(*tasks)
+
+    return results
+
+
+##############################################################
+### Main Loop
+##############################################################
 
 
 async def main():
@@ -105,10 +135,10 @@ async def main():
     else:
         raise Exception("Invalid prompt type entered")
 
-    
     model_client = AsyncOpenAI(api_key = OPENAI_API_KEY)
 
     print("Creating Prompts")
+    
     # Shuffle promtps
     random.seed(1)
     random.shuffle(prompts)
@@ -120,29 +150,35 @@ async def main():
     elif exp_num == 2:
         test_prompts = create_prompts(SYSTEM_PROMPTS, prompts[:num_prompts])
 
+    data_columns = ["user_prompt", "sys_idx", "system", "full_prompt", "response", "gen_id"]
+    csv_save_path = f"toxicity_experiment_{exp_num}/{prompt_type}_responses_{num_seeds}_seeds_{num_prompts}_prompts.csv"
 
     print("Obtaining Responses")
-    
-    results = []
 
-    start = time.time()
-    for message in tqdm(test_prompts, desc = "Prompts to get response from"):
-        tasks = []
-        for seed in range(num_seeds):
-            time.sleep(0.6)
-            task = asyncio.create_task(generate_answer(message, model_client, seed))
-            tasks.append(task)
-        sudo_results = await asyncio.gather(*tasks)
-        results.extend(sudo_results)
+    # Data for batching and delays
+    batch_size = 100 // num_seeds
+    delay_between_batches = 30
+    delay_between_calls = 0.12
 
-    end = time.time()
+    timer = Timer(text=f"Text Generation elapsed time: {{:.1f}}")
+    timer.start()
 
-    print(f"Time to complete: {end-start}")
+    for i in tqdm(range(0, len(test_prompts), batch_size), desc = "Batch Num"):
 
-    print("Saving Results")
-    df_results = pd.DataFrame(results)
+        batch_prompts = test_prompts[i:i + batch_size]
+        results = await execute_batch(batch_prompts, model_client, num_seeds, delay_between_calls)
 
-    df_results.to_csv(f"toxicity_experiment_{exp_num}/{prompt_type}_responses_{num_seeds}_seeds_{num_prompts}_prompts.csv", sep = "\t")
+        new_data = pd.DataFrame(results, columns = data_columns)
+        
+        print("Writing to CSV")
+        new_data.to_csv(csv_save_path, mode="a", header = False, index = False, sep = "\t")
+
+        print("Batch delay in progress")
+        await asyncio.sleep(delay_between_batches)
+        print("Batch delay done")
+
+    timer.stop()
+
     print("Done")
 
 if __name__ == '__main__':

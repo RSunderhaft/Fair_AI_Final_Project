@@ -2,7 +2,9 @@
 .DS_Store
 
 toxicity_experiment_1/
-toxicity_experiment_1/
+toxicity_experiment_2/
 __pycache__
+rep
+.vscode
 
 realtoxicityprompts-data/
